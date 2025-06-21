@@ -1,0 +1,203 @@
+```{r}
+library("dplyr")
+library("ggplot2")
+library("MASS")
+library("pracma")
+```
+
+
+
+
+```{r}
+#########################Eigenschaften der Designmatrix######################################
+
+
+X <- matrix(c(1, 1, 1,
+              2, 4, 6,
+              3, 5, 7), nrow = 3)
+Null(X)
+
+X %*% Null(t(X))
+
+```
+
+```{r, echo = TRUE, results='hold', include= TRUE}
+X <- matrix(c(1, 1,
+              2, 4,
+              3, 5), nrow = 3, byrow = TRUE)
+
+# Pseudoinverse
+Xp <- ginv(X)
+Xp
+
+# Transponierte
+Xt <- t(X)
+Xt
+
+```
+```{r, echo = TRUE, results='hold', include= TRUE}
+# a) R(Xt) = R(Xp)
+# Dafür sollten die Basen gleich sein/ oder linear abhängig (Orthogonalraum)
+
+Null(t(Xp))
+
+Null(t(Xt))
+
+# Nullräume sind gleich
+
+# Orthonormale Basen der Spaltenräume ebenfalls
+
+orth(Xp)
+
+orth(Xt)
+
+
+# Linear abhänig
+```
+
+```{r, echo = TRUE, results='hold', include= TRUE}
+# b) N(Xt) = N(Xp)
+#Nullräume:
+Null(Xp)
+
+Null(Xt)
+
+# In diesem Beispiel trivialer Nullraum
+```
+
+```{r}
+# c)
+ginv(ginv(X))
+
+t(ginv(X))
+
+ginv(t(X))
+
+all.equal(t(ginv(X)), ginv(t(X)))
+
+```
+
+```{r}
+# d)
+# Beziehung zwischen MP-Inverse und Produkt innerhalb/ außerhalb
+
+ginv(t(X) %*% X)
+
+ginv(X) %*% ginv(t(X))
+
+all.equal(ginv(t(X) %*% X), ginv(X) %*% ginv(t(X)))
+
+
+########################################
+
+
+ginv(X %*% t(X))
+
+ginv(t(X)) %*% ginv(X)
+
+all.equal(ginv(X %*% t(X)), ginv(t(X)) %*% ginv(X))
+```
+
+```{r}
+# e)
+```
+
+```{r}
+# Projektionen
+# Projektionsmatrix auf R(X)
+P <- X %*% Xp
+P
+t(P)
+P %*% P
+
+all.equal(P %*% P, P)      # idempotent
+all.equal(t(P), P)         # symmetrisch
+
+P %*% X # Projektion auf X 
+
+P %*% matrix(data = c(1,1,1,2,2,2) ,nrow = 3, ncol = 2, byrow = FALSE)
+```
+```{r}
+qr(X %*% Xp)$rank
+qr(X)$rank
+```
+
+```{r}
+###########################################################Parameterschätzung im Linearen Modell ###################
+# Beta = (X^t * X)^-1 * X^t * Y 
+# Normalengleichung X^t X Beta = X^t Y 
+
+param <- function(X, y) {
+  X <- as.matrix(X)
+  y <- as.vector(y)
+
+  beta_hat <- solve(t(X) %*% X) %*% t(X) %*% y
+  
+  return(beta_hat)
+}
+
+# Parameterschätzung 
+
+# Identifizierbarkeit und Verträglichkeit
+
+check_identifizierbarkeit <- function(X, B, tol = 1e-8) {
+  k <- ncol(X)
+  I_k <- diag(k)
+  
+  X_plus <- MASS::ginv(X)
+  B_plus <- MASS::ginv(B)
+  
+  # (I - X^+ X)(I - B^+ B)
+  test_matrix <- (I_k - X_plus %*% X) %*% (I_k - B_plus %*% B)
+  
+  return(all(abs(test_matrix) < tol))
+}
+
+
+
+check_vertraeglichkeit <- function(X, B, tol = 1e-8) {
+  n <- nrow(X)
+  I_n <- diag(n)
+  
+  X_plus <- MASS::ginv(X)
+  
+  # (I - X X^+) X
+  test_matrix <- (I_n - X %*% X_plus) %*% X
+  
+  return(all(abs(test_matrix) < tol))
+}
+
+
+
+
+# LE Schätzbarkeit E(l^t Y) = c^t beta
+# Nur wenn genug Information in 𝑋 steckt, um 𝑐⊤𝛽 herauszulesen, kannst du einen linear erwartungstreuen Schätzer dafür bauen.
+
+is_LE_schaetzbar <- function(X, c, tol = 1e-8) {
+  X <- as.matrix(X)
+  c <- as.vector(c)
+
+  # c ist in R(X^T) genau dann, wenn das LGS t(X) %*% l = c lösbar ist.
+  # Wir lösen dieses System mit least squares:
+  l_hat <- tryCatch({
+    solve(t(X) %*% X, t(X) %*% c)
+  }, error = function(e) {
+    return(NULL)  # Nicht lösbar (Singularität)
+  })
+
+  if (is.null(l_hat)) {
+    return(FALSE)
+  }
+
+  # Teste, ob t(X) %*% l_hat ≈ c (Numerik beachten)
+  residual <- as.vector(t(X) %*% l_hat - c)
+  return(all(abs(residual) < tol))
+}
+
+
+
+
+
+
+```
+
