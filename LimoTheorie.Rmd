@@ -117,10 +117,34 @@ P %*% X # Projektion auf X
 
 P %*% matrix(data = c(1,1,1,2,2,2) ,nrow = 3, ncol = 2, byrow = FALSE)
 ```
+
 ```{r}
 qr(X %*% Xp)$rank
 qr(X)$rank
 ```
+
+```{r}
+# B restringierte Designmatrix 
+restr_designmatrix <- function(X, B) {
+  k <- ncol(X)
+  I_k <- diag(k)
+  B_plus <- ginv(B)
+  
+  X_B <- X %*% (I_k - B_plus %*% B)
+  
+  return(X_B)
+}
+
+# Und Inverse
+restr_designmatrix_inverse <- function(X, B) {
+  X_B <- restr_designmatrix(X, B)
+  X_B_plus <- ginv(X_B)
+  
+  return(X_B_plus)
+}
+  
+```
+
 
 ```{r}
 ###########################################################Parameterschätzung im Linearen Modell ###################
@@ -144,14 +168,15 @@ check_identifizierbarkeit <- function(X, B, tol = 1e-8) {
   k <- ncol(X)
   I_k <- diag(k)
   
-  X_plus <- MASS::ginv(X)
-  B_plus <- MASS::ginv(B)
+  X_B <- restr_designmatrix(X, B)
+  X_B_plus <- ginv(X_B)
+  B_plus <- ginv(B)
   
-  # (I - X^+ X)(I - B^+ B)
-  test_matrix <- (I_k - X_plus %*% X) %*% (I_k - B_plus %*% B)
+  test_matrix <- (I_k - X_B_plus %*% X) %*% (I_k - B_plus %*% B)
   
   return(all(abs(test_matrix) < tol))
 }
+
 
 
 
@@ -159,10 +184,10 @@ check_vertraeglichkeit <- function(X, B, tol = 1e-8) {
   n <- nrow(X)
   I_n <- diag(n)
   
-  X_plus <- MASS::ginv(X)
+  X_B <- restr_designmatrix(X, B)
+  X_B_plus <- ginv(X_B)
   
-  # (I - X X^+) X
-  test_matrix <- (I_n - X %*% X_plus) %*% X
+  test_matrix <- (I_n - X %*% X_B_plus) %*% X
   
   return(all(abs(test_matrix) < tol))
 }
@@ -189,7 +214,7 @@ is_LE_schaetzbar <- function(X, c, tol = 1e-8) {
     return(FALSE)
   }
 
-  # Teste, ob t(X) %*% l_hat ≈ c (Numerik beachten)
+  # Teste, ob t(X) %*% l_hat ≈ c 
   residual <- as.vector(t(X) %*% l_hat - c)
   return(all(abs(residual) < tol))
 }
@@ -198,6 +223,107 @@ is_LE_schaetzbar <- function(X, c, tol = 1e-8) {
 
 
 
+
+```
+
+```{r}
+########Beispiel#####################################
+y <- c(19, 20, 21, 29, 32, 26)
+
+# Designmatrix für: (Intercept), alpha1, alpha2, alpha3
+X <- matrix(c(1, 1, 0, 0,
+              1, 1, 0, 0,
+              1, 1, 0, 0,
+              1, 0, 1, 0,
+              1, 0, 1, 0,
+              1, 0, 0, 1), nrow = 6, byrow = TRUE)
+
+# Nebenbedingung: Summe der Alpha-Effekte = 0
+B <- matrix(c(0, 1, 1, 1), nrow = 1)
+
+restr_designmatrix(X, B)
+
+restr_designmatrix_inverse(X, B)
+
+check_identifizierbarkeit(X,B)
+
+check_vertraeglichkeit(X,B)
+
+restr_designmatrix_inverse(X, B) %*% y #Schätzt die Parameter 
+
+
+
+```
+
+```{r}
+GM_Schaetzbar <- function(X, B, C, tol = 1e-8) {
+  k <- ncol(X)
+  I_k <- diag(k)
+  
+  B_plus <- ginv(B)
+  X_B <- restr_designmatrix(X, B)
+  X_B_plus <- ginv(X_B)
+  
+  test_matrix <- C %*% (I_k - X_B_plus %*% X) %*% (I_k - B_plus %*% B)
+  
+  return(all(abs(test_matrix) < tol))
+}
+```
+
+```{r}
+# Erwartungstreue Schätzung der Varianz
+kq_anpassung <- function(Y, X, B = NULL) {
+  if (is.null(B)) {
+    X_B <- X
+  } else {
+    X_B <- restr_designmatrix(X, B)
+  }
+  
+  P_XB <- X_B %*% ginv(X_B)
+  I_n <- diag(nrow(X))
+  
+  Y_hat <- P_XB %*% Y
+  e <- Y - Y_hat
+  P_orth <- I_n - P_XB
+  
+  return(list(
+    Y_hat = Y_hat,
+    Residuen = e,
+    P_orth = P_orth
+  ))
+}
+
+schaetze_sigma2 <- function(Y, X, B = NULL) {
+  n <- length(Y)
+  I_n <- diag(n)
+  
+  if (is.null(B)) {
+    X_B <- X
+  } else {
+    X_B <- restr_designmatrix(X, B)
+  }
+  
+  X_B_plus <- ginv(X_B)
+  
+  # Projektionsmatrizen
+  P_XB <- X_B %*% X_B_plus
+  P_orth <- I_n - P_XB
+  
+  # Residuen
+  e_b <- P_orth %*% Y
+  
+  # Quadratische Form
+  quad_form <- as.numeric(t(e_b) %*% e_b)
+  
+  # Freiheitsgrade: Spur der orthogonalen Projektionsmatrix
+  df <- sum(diag(P_orth))
+  
+  # Erwartungstreue Schätzung
+  sigma2_hat <- quad_form / df
+  return(sigma2_hat)
+}
+
+# Wichtig bei der Varianz Residuenquadrat ist intuitiv ein gutes Streuungsmaß aber nicht Erwartungstreu, deswegen wird durch die Spur der Orthogonalen Projektion geteilt
 
 ```
 
